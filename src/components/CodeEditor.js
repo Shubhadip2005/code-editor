@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Layout, Maximize2, Code2, Share2, Download, Trash2, Settings, Moon, Sun, Save, FolderOpen, Copy, Check, RefreshCw, Plus, X, Edit2, Calendar, Link2 } from 'lucide-react';
-
+import Editor from '@monaco-editor/react';
 // LZ String compression utilities (simplified implementation)
 const LZString = {
   compressToEncodedURIComponent: (str) => {
@@ -65,7 +65,6 @@ export default function CodeEditor() {
   const [showSettings, setShowSettings] = useState(false);
   const [copied, setCopied] = useState(false);
   const [savedProjects, setSavedProjects] = useState([]);
-  const [monacoLoaded, setMonacoLoaded] = useState(false);
   const [showProjectManager, setShowProjectManager] = useState(false);
   const [currentProjectName, setCurrentProjectName] = useState('Untitled Project');
   const [shareUrl, setShareUrl] = useState('');
@@ -73,127 +72,40 @@ export default function CodeEditor() {
   
   const iframeRef = useRef(null);
   const timeoutRef = useRef(null);
-  const editorRefs = useRef({ html: null, css: null, js: null });
-  const monacoRef = useRef(null);
 
   // Load projects from memory on mount
   useEffect(() => {
-    const stored = savedProjects;
-    if (stored.length > 0) {
-      console.log(`📦 Loaded ${stored.length} projects from memory`);
-    }
-  }, [savedProjects]);
-
-  // Save projects to memory whenever they change
-  useEffect(() => {
     if (savedProjects.length > 0) {
-      console.log(`💾 ${savedProjects.length} projects in memory`);
+      console.log(`📚 Loaded ${savedProjects.length} projects from memory`);
     }
-  }, [savedProjects]);
+  }, [savedProjects.length]); // Empty deps - only run on mount
 
-  // Load Monaco Editor
-  useEffect(() => {
-    const currentEditorRefs = editorRefs.current;
-
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js';
-    script.async = true;
-    script.onerror = () => {
-      console.log('Monaco CDN failed, retrying...');
-      setMonacoLoaded(false);
-    };
-
-    script.onload = () => {
-      try {
-        window.require.config({ 
-          paths: { 
-            vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' 
-          } 
-        });
-        
-        window.require(['vs/editor/editor.main'], () => {
-          monacoRef.current = window.monaco;
-          setMonacoLoaded(true);
-        }, (err) => {
-          console.error('Monaco load error:', err);
-        });
-      } catch (e) {
-        console.error('Monaco initialization error:', e);
-      }
-    };
-    document.body.appendChild(script);
-
-    return () => {
-      Object.values(currentEditorRefs).forEach(editor => {
-        if (editor) editor.dispose();
-      });
-    };
-  }, []);
-
-  // Initialize Monaco editors
-  useEffect(() => {
-    if (!monacoLoaded || !monacoRef.current) return;
-
-    const monaco = monacoRef.current;
-    const editorContainer = document.getElementById('monaco-editor-container');
-    if (!editorContainer) return;
-
-    if (editorRefs.current[activeTab]) {
-      editorRefs.current[activeTab].dispose();
+  const handleEditorChange = (value) => {
+    switch (activeTab) {
+      case 'html': setHtml(value || ''); break;
+      case 'css': setCss(value || ''); break;
+      case 'js': setJs(value || ''); break;
+      default: break;
     }
+  };
 
-    const languageMap = {
-      html: 'html',
-      css: 'css',
-      js: 'javascript'
-    };
+  const getCurrentCode = () => {
+    switch (activeTab) {
+      case 'html': return html;
+      case 'css': return css;
+      case 'js': return js;
+      default: return '';
+    }
+  };
 
-    const getCurrentCode = () => {
-      switch (activeTab) {
-        case 'html': return html;
-        case 'css': return css;
-        case 'js': return js;
-        default: return '';
-      }
-    };
-
-    const editor = monaco.editor.create(editorContainer, {
-      value: getCurrentCode(),
-      language: languageMap[activeTab],
-      theme: theme === 'dark' ? 'vs-dark' : 'vs',
-      fontSize: fontSize,
-      automaticLayout: true,
-      minimap: { enabled: true },
-      scrollBeyondLastLine: false,
-      wordWrap: 'on',
-      lineNumbers: 'on',
-      renderWhitespace: 'selection',
-      tabSize: 2,
-      insertSpaces: true,
-      formatOnPaste: true,
-      formatOnType: true,
-      suggestOnTriggerCharacters: true,
-      quickSuggestions: true,
-      folding: true,
-      bracketPairColorization: { enabled: true }
-    });
-
-    editor.onDidChangeModelContent(() => {
-      const value = editor.getValue();
-      switch (activeTab) {
-        case 'html': setHtml(value); break;
-        case 'css': setCss(value); break;
-        case 'js': setJs(value); break;
-        default:;break;
-      }
-    });
-
-    editorRefs.current[activeTab] = editor;
-
-    return () => {
-      if (editor) editor.dispose();
-    };
-  }, [monacoLoaded, activeTab, theme, fontSize, html, css, js]);
+  const getLanguage = () => {
+    switch (activeTab) {
+      case 'html': return 'html';
+      case 'css': return 'css';
+      case 'js': return 'javascript';
+      default: return 'html';
+    }
+  };
 
   const generateSrcDoc = useCallback(() => {
     return `
@@ -348,10 +260,6 @@ export default function CodeEditor() {
     setJs(template.js);
     setCurrentProjectName(template.name);
     setConsoleOutput([]);
-    
-    if (editorRefs.current.html) editorRefs.current.html.setValue(template.html);
-    if (editorRefs.current.css) editorRefs.current.css.setValue(template.css);
-    if (editorRefs.current.js) editorRefs.current.js.setValue(template.js);
   };
 
   // Enhanced URL sharing with compression
@@ -445,11 +353,6 @@ export default function CodeEditor() {
       setCss(project.css);
       setJs(project.js);
       setCurrentProjectName(project.name);
-      
-      if (editorRefs.current.html) editorRefs.current.html.setValue(project.html);
-      if (editorRefs.current.css) editorRefs.current.css.setValue(project.css);
-      if (editorRefs.current.js) editorRefs.current.js.setValue(project.js);
-      
       setShowProjectManager(false);
       console.log(`📂 Loaded project: ${project.name}`);
     }
@@ -469,10 +372,6 @@ export default function CodeEditor() {
       setJs(TEMPLATES.blank.js);
       setCurrentProjectName('Untitled Project');
       setConsoleOutput([]);
-      
-      if (editorRefs.current.html) editorRefs.current.html.setValue(TEMPLATES.blank.html);
-      if (editorRefs.current.css) editorRefs.current.css.setValue(TEMPLATES.blank.css);
-      if (editorRefs.current.js) editorRefs.current.js.setValue(TEMPLATES.blank.js);
     }
   };
 
@@ -485,12 +384,6 @@ export default function CodeEditor() {
 
   const clearConsole = () => {
     setConsoleOutput([]);
-  };
-
-  const formatCode = () => {
-    if (editorRefs.current[activeTab]) {
-      editorRefs.current[activeTab].getAction('editor.action.formatDocument').run();
-    }
   };
 
   // Load shared code from URL
@@ -684,9 +577,6 @@ export default function CodeEditor() {
             />
             <span className="font-mono">{fontSize}px</span>
           </label>
-          <div className={`px-3 py-1 rounded-lg ${monacoLoaded ? 'bg-green-500/20 text-green-500' : 'bg-yellow-500/20 text-yellow-500'} text-xs font-semibold`}>
-            {monacoLoaded ? '✓ Monaco Loaded' : '⏳ Loading Monaco...'}
-          </div>
           <div className={`px-3 py-1 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} text-xs`}>
             💾 {savedProjects.length} Projects Saved
           </div>
@@ -725,22 +615,44 @@ export default function CodeEditor() {
                 >
                   {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                 </button>
-                <button
-                  onClick={formatCode}
-                  className={`text-xs ${theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
-                  title="Format Code"
-                >
-                  Format
-                </button>
               </div>
             </div>
 
-            {/* Monaco Editor Container */}
-            <div 
-              id="monaco-editor-container" 
-              className="flex-1 overflow-hidden"
-              style={{ height: 'calc(100% - 200px)' }}
-            />
+            {/* @monaco-editor/react */}
+            <div className="flex-1 overflow-hidden">
+              <Editor
+                height="100%"
+                language={getLanguage()}
+                value={getCurrentCode()}
+                onChange={handleEditorChange}
+                theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+                options={{
+                  fontSize: fontSize,
+                  automaticLayout: true,
+                  minimap: { enabled: true },
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  lineNumbers: 'on',
+                  renderWhitespace: 'selection',
+                  tabSize: 2,
+                  insertSpaces: true,
+                  formatOnPaste: true,
+                  formatOnType: true,
+                  suggestOnTriggerCharacters: true,
+                  quickSuggestions: true,
+                  folding: true,
+                  bracketPairColorization: { enabled: true }
+                }}
+                loading={
+                  <div className={`flex items-center justify-center h-full ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-100'}`}>
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                      <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>Loading Editor...</p>
+                    </div>
+                  </div>
+                }
+              />
+            </div>
 
             {/* Console */}
             <div className={`h-48 ${theme === 'dark' ? 'bg-gray-950' : 'bg-gray-100'} ${borderColor} border-t flex flex-col`}>
@@ -933,13 +845,3 @@ export default function CodeEditor() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-//end
