@@ -231,6 +231,14 @@ export default function CodeEditor() {
       timeoutRef.current = setTimeout(() => {
         runCode();
       }, 800);
+    } else {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      if (iframeRef.current) {
+        iframeRef.current.srcdoc = '';
+      }
     }
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -260,6 +268,10 @@ export default function CodeEditor() {
     setJs(template.js);
     setCurrentProjectName(template.name);
     setConsoleOutput([]);
+    // Clear iframe if autoRun is off
+    if (!autoRun && iframeRef.current) {
+      iframeRef.current.srcdoc = '';
+    }
   };
 
   // Enhanced URL sharing with compression
@@ -354,6 +366,10 @@ export default function CodeEditor() {
       setJs(project.js);
       setCurrentProjectName(project.name);
       setShowProjectManager(false);
+      // Clear iframe if autoRun is off
+      if (!autoRun && iframeRef.current) {
+        iframeRef.current.srcdoc = '';
+      }
       console.log(`📂 Loaded project: ${project.name}`);
     }
   };
@@ -372,6 +388,10 @@ export default function CodeEditor() {
       setJs(TEMPLATES.blank.js);
       setCurrentProjectName('Untitled Project');
       setConsoleOutput([]);
+      // Clear iframe if autoRun is off
+      if (!autoRun && iframeRef.current) {
+        iframeRef.current.srcdoc = '';
+      }
     }
   };
 
