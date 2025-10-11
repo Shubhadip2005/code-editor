@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Layout, Maximize2, Code2, Share2, Download, Trash2, Settings, Moon, Sun, Save, FolderOpen, Copy, Check, RefreshCw, Plus, X, Edit2, Calendar, Link2 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
+
 // LZ String compression utilities (simplified implementation)
 const LZString = {
   compressToEncodedURIComponent: (str) => {
@@ -52,6 +53,69 @@ const TEMPLATES = {
   }
 };
 
+// Storage utilities for localStorage
+const Storage = {
+  // Save projects to localStorage
+  saveProjects: (projects) => {
+    try {
+      localStorage.setItem('codeStudioProjects', JSON.stringify(projects));
+      console.log(`💾 Saved ${projects.length} projects to localStorage`);
+      return true;
+    } catch (error) {
+      console.error('Failed to save projects:', error);
+      return false;
+    }
+  },
+
+  // Load projects from localStorage
+  loadProjects: () => {
+    try {
+      const stored = localStorage.getItem('codeStudioProjects');
+      if (stored) {
+        const projects = JSON.parse(stored);
+        console.log(`📂 Loaded ${projects.length} projects from localStorage`);
+        return projects;
+      }
+    } catch (error) {
+      console.error('Failed to load projects:', error);
+    }
+    return [];
+  },
+
+  // Save current session (auto-save)
+  saveCurrentSession: (html, css, js, projectName) => {
+    try {
+      const session = { html, css, js, projectName, timestamp: new Date().toISOString() };
+      localStorage.setItem('codeStudioCurrentSession', JSON.stringify(session));
+      console.log('💫 Auto-saved current session');
+    } catch (error) {
+      console.error('Failed to save session:', error);
+    }
+  },
+
+  // Load current session
+  loadCurrentSession: () => {
+    try {
+      const stored = localStorage.getItem('codeStudioCurrentSession');
+      if (stored) {
+        const session = JSON.parse(stored);
+        console.log('🔄 Loaded previous session');
+        return session;
+      }
+    } catch (error) {
+      console.error('Failed to load session:', error);
+    }
+    return null;
+  },
+
+  // Clear all data (for debugging)
+  clearAll: () => {
+    localStorage.removeItem('codeStudioProjects');
+    localStorage.removeItem('codeStudioCurrentSession');
+    console.log('🧹 Cleared all stored data');
+  }
+};
+
 export default function CodeEditor() {
   const [html, setHtml] = useState(TEMPLATES.blank.html);
   const [css, setCss] = useState(TEMPLATES.blank.css);
@@ -69,16 +133,36 @@ export default function CodeEditor() {
   const [currentProjectName, setCurrentProjectName] = useState('Untitled Project');
   const [shareUrl, setShareUrl] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   
   const iframeRef = useRef(null);
   const timeoutRef = useRef(null);
 
-  // Load projects from memory on mount
+  // Load projects and session from localStorage on mount
   useEffect(() => {
-    if (savedProjects.length > 0) {
-      console.log(`📚 Loaded ${savedProjects.length} projects from memory`);
+    const loadedProjects = Storage.loadProjects();
+    setSavedProjects(loadedProjects);
+
+    const session = Storage.loadCurrentSession();
+    if (session) {
+      setHtml(session.html);
+      setCss(session.css);
+      setJs(session.js);
+      setCurrentProjectName(session.projectName);
+      console.log('🔄 Restored previous session');
     }
-  }, [savedProjects.length]); // Empty deps - only run on mount
+  }, []);
+
+  // Auto-save current session
+  useEffect(() => {
+    if (autoSaveEnabled) {
+      const autoSaveTimeout = setTimeout(() => {
+        Storage.saveCurrentSession(html, css, js, currentProjectName);
+      }, 2000); // Auto-save after 2 seconds of inactivity
+
+      return () => clearTimeout(autoSaveTimeout);
+    }
+  }, [html, css, js, currentProjectName, autoSaveEnabled]);
 
   const handleEditorChange = (value) => {
     switch (activeTab) {
@@ -327,7 +411,7 @@ export default function CodeEditor() {
     URL.revokeObjectURL(url);
   };
 
-  // Enhanced project management
+  // Enhanced project management with localStorage
   const saveProject = () => {
     const projectName = prompt('Enter project name:', currentProjectName);
     if (!projectName) return;
@@ -344,18 +428,24 @@ export default function CodeEditor() {
     
     setSavedProjects(prev => {
       const existingIndex = prev.findIndex(p => p.name === projectName);
+      let updated;
+      
       if (existingIndex >= 0) {
-        const updated = [...prev];
+        updated = [...prev];
         updated[existingIndex] = project;
-        return updated;
+      } else {
+        updated = [...prev, project];
       }
-      return [...prev, project];
+      
+      // Save to localStorage
+      Storage.saveProjects(updated);
+      return updated;
     });
     
     setCurrentProjectName(projectName);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    console.log(`💾 Project "${projectName}" saved to memory`);
+    console.log(`💾 Project "${projectName}" saved to localStorage`);
   };
 
   const loadProjectById = (projectId) => {
@@ -376,8 +466,10 @@ export default function CodeEditor() {
 
   const deleteProject = (projectId) => {
     if (window.confirm('Are you sure you want to delete this project?')) {
-      setSavedProjects(prev => prev.filter(p => p.id !== projectId));
-      console.log('🗑️ Project deleted');
+      const updatedProjects = savedProjects.filter(p => p.id !== projectId);
+      setSavedProjects(updatedProjects);
+      Storage.saveProjects(updatedProjects);
+      console.log('🗑️ Project deleted from localStorage');
     }
   };
 
@@ -404,6 +496,19 @@ export default function CodeEditor() {
 
   const clearConsole = () => {
     setConsoleOutput([]);
+  };
+
+  // Clear all data (for debugging/reset)
+  const clearAllData = () => {
+    if (window.confirm('Clear ALL saved projects and session data? This cannot be undone.')) {
+      Storage.clearAll();
+      setSavedProjects([]);
+      setHtml(TEMPLATES.blank.html);
+      setCss(TEMPLATES.blank.css);
+      setJs(TEMPLATES.blank.js);
+      setCurrentProjectName('Untitled Project');
+      console.log('🧹 All data cleared');
+    }
   };
 
   // Load shared code from URL
@@ -515,6 +620,16 @@ export default function CodeEditor() {
             />
             Auto Run
           </label>
+
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input 
+              type="checkbox" 
+              checked={autoSaveEnabled} 
+              onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+              className="w-4 h-4 text-blue-500 rounded focus:ring-2 focus:ring-blue-500"
+            />
+            Auto Save
+          </label>
           
           <button
             onClick={runCode}
@@ -584,7 +699,7 @@ export default function CodeEditor() {
 
       {/* Settings Panel */}
       {showSettings && (
-        <div className={`${headerBg} ${borderColor} border-b p-4 flex items-center gap-6`}>
+        <div className={`${headerBg} ${borderColor} border-b p-4 flex items-center gap-6 flex-wrap`}>
           <label className="flex items-center gap-2 text-sm">
             Font Size:
             <input
@@ -597,9 +712,18 @@ export default function CodeEditor() {
             />
             <span className="font-mono">{fontSize}px</span>
           </label>
-          <div className={`px-3 py-1 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} text-xs`}>
+          
+          <div className={`px-3 py-1 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} text-xs flex items-center gap-2`}>
             💾 {savedProjects.length} Projects Saved
           </div>
+
+          <button
+            onClick={clearAllData}
+            className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs transition"
+            title="Clear All Data"
+          >
+            Clear All Data
+          </button>
         </div>
       )}
 
@@ -750,7 +874,7 @@ export default function CodeEditor() {
               <div>
                 <h2 className="text-2xl font-bold">My Projects</h2>
                 <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
-                  {savedProjects.length} project{savedProjects.length !== 1 ? 's' : ''} saved in memory
+                  {savedProjects.length} project{savedProjects.length !== 1 ? 's' : ''} saved in localStorage
                 </p>
               </div>
               <button
@@ -790,6 +914,8 @@ export default function CodeEditor() {
                             </span>
                             <span>•</span>
                             <span>{project.html.length + project.css.length + project.js.length} chars</span>
+                            <span>•</span>
+                            <span className="text-green-400">💾 Saved</span>
                           </div>
                         </div>
                         <button
