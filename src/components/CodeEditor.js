@@ -286,84 +286,44 @@ export default function CodeEditor() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
           ${css}
-          #__console__ {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 13px;
-            max-height: 0;
-            overflow-y: auto;
-            padding: 0;
-            border-top: 1px solid #333;
-            transition: max-height 0.3s, padding 0.3s;
-            z-index: 99999;
-          }
-          #__console__.active {
-            max-height: 250px;
-            padding: 12px;
-          }
-          .__log__ { color: #4ec9b0; padding: 4px 0; }
-          .__error__ { color: #f48771; padding: 4px 0; }
-          .__warn__ { color: #dcdcaa; padding: 4px 0; }
-          .__info__ { color: #9cdcfe; padding: 4px 0; }
         </style>
       </head>
       <body>
         ${html}
-        <div id="__console__"></div>
         <script>
+          // Override console methods to send messages to parent
           (function() {
             const origLog = console.log;
             const origError = console.error;
             const origWarn = console.warn;
             const origInfo = console.info;
-            const consoleDiv = document.getElementById('__console__');
             
-            function addToConsole(level, args) {
-              const line = document.createElement('div');
-              line.className = '__' + level + '__';
-              const time = new Date().toLocaleTimeString();
-              line.textContent = '[' + time + '] ' + 
-                args.map(arg => {
-                  if (typeof arg === 'object') {
-                    try { return JSON.stringify(arg, null, 2); }
-                    catch(e) { return String(arg); }
-                  }
-                  return String(arg);
-                }).join(' ');
-              consoleDiv.appendChild(line);
-              consoleDiv.classList.add('active');
-              consoleDiv.scrollTop = consoleDiv.scrollHeight;
-              
+            function sendToParent(level, args) {
               window.parent.postMessage({
                 type: 'console',
                 level: level,
                 data: args,
-                timestamp: time
+                timestamp: new Date().toLocaleTimeString()
               }, '*');
             }
             
             console.log = function(...args) {
-              addToConsole('log', args);
+              sendToParent('log', args);
               origLog.apply(console, args);
             };
             
             console.error = function(...args) {
-              addToConsole('error', args);
+              sendToParent('error', args);
               origError.apply(console, args);
             };
             
             console.warn = function(...args) {
-              addToConsole('warn', args);
+              sendToParent('warn', args);
               origWarn.apply(console, args);
             };
             
             console.info = function(...args) {
-              addToConsole('info', args);
+              sendToParent('info', args);
               origInfo.apply(console, args);
             };
             
