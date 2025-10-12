@@ -207,9 +207,11 @@ export default function CodeEditor() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [lastSaved, setLastSaved] = useState(null);
   
   const iframeRef = useRef(null);
   const timeoutRef = useRef(null);
+  const autoSaveTimeoutRef = useRef(null);
 
   // Load projects from Firebase and session from localStorage on mount
   useEffect(() => {
@@ -242,11 +244,16 @@ export default function CodeEditor() {
   // Auto-save current session to localStorage
   useEffect(() => {
     if (autoSaveEnabled) {
-      const autoSaveTimeout = setTimeout(() => {
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+      
+      autoSaveTimeoutRef.current = setTimeout(() => {
         LocalStorage.saveCurrentSession(html, css, js, currentProjectName);
+        setLastSaved(new Date().toLocaleTimeString());
       }, 2000);
 
-      return () => clearTimeout(autoSaveTimeout);
+      return () => {
+        if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+      };
     }
   }, [html, css, js, currentProjectName, autoSaveEnabled]);
 
@@ -397,6 +404,7 @@ export default function CodeEditor() {
     setCss(template.css);
     setJs(template.js);
     setCurrentProjectName(template.name);
+    setLastSaved(new Date().toLocaleTimeString());
     setConsoleOutput([]);
     if (!autoRun && iframeRef.current) {
       iframeRef.current.srcdoc = '';
@@ -487,6 +495,7 @@ export default function CodeEditor() {
       }
       
       setCurrentProjectName(projectName);
+      setLastSaved(new Date().toLocaleTimeString());
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       console.log(`💾 Project "${projectName}" saved to Firebase`);
@@ -507,6 +516,7 @@ export default function CodeEditor() {
         setCss(project.css);
         setJs(project.js);
         setCurrentProjectName(project.name);
+        setLastSaved(new Date().toLocaleTimeString());
         setShowProjectManager(false);
         if (!autoRun && iframeRef.current) {
           iframeRef.current.srcdoc = '';
@@ -544,6 +554,7 @@ export default function CodeEditor() {
       setCss(TEMPLATES.blank.css);
       setJs(TEMPLATES.blank.js);
       setCurrentProjectName('Untitled Project');
+      setLastSaved(null);
       setConsoleOutput([]);
       if (!autoRun && iframeRef.current) {
         iframeRef.current.srcdoc = '';
@@ -570,6 +581,7 @@ export default function CodeEditor() {
       setCss(TEMPLATES.blank.css);
       setJs(TEMPLATES.blank.js);
       setCurrentProjectName('Untitled Project');
+      setLastSaved(null);
       console.log('🧹 All local data cleared');
     }
   };
@@ -586,6 +598,7 @@ export default function CodeEditor() {
         setCss(decoded.css);
         setJs(decoded.js);
         if (decoded.name) setCurrentProjectName(decoded.name);
+        setLastSaved(new Date().toLocaleTimeString());
         console.log('🔗 Loaded shared project from URL');
       } catch (e) {
         console.error('Failed to load shared code:', e);
@@ -621,6 +634,11 @@ export default function CodeEditor() {
             </div>
             <div className="text-sm opacity-70">
               {currentProjectName}
+              {lastSaved && (
+                <span className="ml-2 text-xs text-green-500">
+                  • Auto-saved: {lastSaved}
+                </span>
+              )}
             </div>
           </div>
           
