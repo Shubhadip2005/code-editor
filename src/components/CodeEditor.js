@@ -1,6 +1,25 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Layout, Maximize2, Code2, Share2, Download, Trash2, Settings, Moon, Sun, Save, FolderOpen, Copy, Check, RefreshCw, Plus, X, Edit2, Calendar, Link2 } from 'lucide-react';
+import { Play, Layout, Maximize2, Code2, Share2, Download, Trash2, Settings, Moon, Sun, Save, FolderOpen, Copy, Check, RefreshCw, Plus, X, Calendar } from 'lucide-react';
 import Editor from '@monaco-editor/react';
+
+// Firebase imports
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
+
+// Firebase configuration
+const firebaseConfig = {
+  // Replace with your Firebase config
+  apiKey: "AIzaSyBVAcIrrz6hjYKKeUwu7dSdKp3GChTblF0",
+  authDomain: "code-editor-bba44.firebaseapp.com",
+  projectId: "code-editor-bba44",
+  storageBucket: "code-editor-bba44.firebasestorage.app",
+  messagingSenderId: "1040435746811",
+  appId: "1:1040435746811:web:4e1cf2ef2409c4832b1d5e"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 // LZ String compression utilities (simplified implementation)
 const LZString = {
@@ -53,43 +72,97 @@ const TEMPLATES = {
   }
 };
 
-// Storage utilities for localStorage
-const Storage = {
-  // Save projects to localStorage
-  saveProjects: (projects) => {
+// Firebase Storage utilities
+const FirebaseStorage = {
+  // Save project to Firebase
+  saveProject: async (project) => {
     try {
-      localStorage.setItem('codeStudioProjects', JSON.stringify(projects));
-      console.log(`💾 Saved ${projects.length} projects to localStorage`);
+      const projectsRef = collection(db, 'projects');
+      const docRef = await addDoc(projectsRef, {
+        ...project,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      console.log(`💾 Project saved to Firebase with ID: ${docRef.id}`);
+      return { ...project, id: docRef.id };
+    } catch (error) {
+      console.error('Failed to save project to Firebase:', error);
+      throw error;
+    }
+  },
+
+  // Update existing project in Firebase
+  updateProject: async (projectId, project) => {
+    try {
+      const projectRef = doc(db, 'projects', projectId);
+      await updateDoc(projectRef, {
+        ...project,
+        updatedAt: new Date().toISOString()
+      });
+      console.log(`📝 Project updated in Firebase: ${projectId}`);
+      return { ...project, id: projectId };
+    } catch (error) {
+      console.error('Failed to update project in Firebase:', error);
+      throw error;
+    }
+  },
+
+  // Load all projects from Firebase
+  loadProjects: async () => {
+    try {
+      const projectsRef = collection(db, 'projects');
+      const q = query(projectsRef, orderBy('updatedAt', 'desc'));
+      const querySnapshot = await getDocs(q);
+      
+      const projects = [];
+      querySnapshot.forEach((doc) => {
+        projects.push({ id: doc.id, ...doc.data() });
+      });
+      
+      console.log(`📂 Loaded ${projects.length} projects from Firebase`);
+      return projects;
+    } catch (error) {
+      console.error('Failed to load projects from Firebase:', error);
+      return [];
+    }
+  },
+
+  // Delete project from Firebase
+  deleteProject: async (projectId) => {
+    try {
+      await deleteDoc(doc(db, 'projects', projectId));
+      console.log(`🗑️ Project deleted from Firebase: ${projectId}`);
       return true;
     } catch (error) {
-      console.error('Failed to save projects:', error);
-      return false;
+      console.error('Failed to delete project from Firebase:', error);
+      throw error;
     }
   },
 
-  // Load projects from localStorage
-  loadProjects: () => {
+  // Load project by ID from Firebase
+  loadProjectById: async (projectId) => {
     try {
-      const stored = localStorage.getItem('codeStudioProjects');
-      if (stored) {
-        const projects = JSON.parse(stored);
-        console.log(`📂 Loaded ${projects.length} projects from localStorage`);
-        return projects;
-      }
+      // This would require a different approach with Firebase
+      // For now, we'll load all projects and filter
+      const projects = await FirebaseStorage.loadProjects();
+      return projects.find(p => p.id === projectId);
     } catch (error) {
-      console.error('Failed to load projects:', error);
+      console.error('Failed to load project from Firebase:', error);
+      return null;
     }
-    return [];
-  },
+  }
+};
 
+// Local Storage utilities (for session data only)
+const LocalStorage = {
   // Save current session (auto-save)
   saveCurrentSession: (html, css, js, projectName) => {
     try {
       const session = { html, css, js, projectName, timestamp: new Date().toISOString() };
       localStorage.setItem('codeStudioCurrentSession', JSON.stringify(session));
-      console.log('💫 Auto-saved current session');
+      console.log('💫 Auto-saved current session to localStorage');
     } catch (error) {
-      console.error('Failed to save session:', error);
+      console.error('Failed to save session to localStorage:', error);
     }
   },
 
@@ -99,20 +172,19 @@ const Storage = {
       const stored = localStorage.getItem('codeStudioCurrentSession');
       if (stored) {
         const session = JSON.parse(stored);
-        console.log('🔄 Loaded previous session');
+        console.log('🔄 Loaded previous session from localStorage');
         return session;
       }
     } catch (error) {
-      console.error('Failed to load session:', error);
+      console.error('Failed to load session from localStorage:', error);
     }
     return null;
   },
 
-  // Clear all data (for debugging)
+  // Clear all local data
   clearAll: () => {
-    localStorage.removeItem('codeStudioProjects');
     localStorage.removeItem('codeStudioCurrentSession');
-    console.log('🧹 Cleared all stored data');
+    console.log('🧹 Cleared all local session data');
   }
 };
 
@@ -134,31 +206,45 @@ export default function CodeEditor() {
   const [shareUrl, setShareUrl] = useState('');
   const [showShareModal, setShowShareModal] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [loading, setLoading] = useState(false);
   
   const iframeRef = useRef(null);
   const timeoutRef = useRef(null);
 
-  // Load projects and session from localStorage on mount
+  // Load projects from Firebase and session from localStorage on mount
   useEffect(() => {
-    const loadedProjects = Storage.loadProjects();
-    setSavedProjects(loadedProjects);
+    const loadInitialData = async () => {
+      setLoading(true);
+      try {
+        // Load projects from Firebase
+        const firebaseProjects = await FirebaseStorage.loadProjects();
+        setSavedProjects(firebaseProjects);
 
-    const session = Storage.loadCurrentSession();
-    if (session) {
-      setHtml(session.html);
-      setCss(session.css);
-      setJs(session.js);
-      setCurrentProjectName(session.projectName);
-      console.log('🔄 Restored previous session');
-    }
+        // Load session from localStorage
+        const session = LocalStorage.loadCurrentSession();
+        if (session) {
+          setHtml(session.html);
+          setCss(session.css);
+          setJs(session.js);
+          setCurrentProjectName(session.projectName);
+          console.log('🔄 Restored previous session');
+        }
+      } catch (error) {
+        console.error('Failed to load initial data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitialData();
   }, []);
 
-  // Auto-save current session
+  // Auto-save current session to localStorage
   useEffect(() => {
     if (autoSaveEnabled) {
       const autoSaveTimeout = setTimeout(() => {
-        Storage.saveCurrentSession(html, css, js, currentProjectName);
-      }, 2000); // Auto-save after 2 seconds of inactivity
+        LocalStorage.saveCurrentSession(html, css, js, currentProjectName);
+      }, 2000);
 
       return () => clearTimeout(autoSaveTimeout);
     }
@@ -352,13 +438,11 @@ export default function CodeEditor() {
     setJs(template.js);
     setCurrentProjectName(template.name);
     setConsoleOutput([]);
-    // Clear iframe if autoRun is off
     if (!autoRun && iframeRef.current) {
       iframeRef.current.srcdoc = '';
     }
   };
 
-  // Enhanced URL sharing with compression
   const shareCode = () => {
     try {
       const codeData = JSON.stringify({ 
@@ -411,13 +495,12 @@ export default function CodeEditor() {
     URL.revokeObjectURL(url);
   };
 
-  // Enhanced project management with localStorage
-  const saveProject = () => {
+  // Save project to Firebase
+  const saveProject = async () => {
     const projectName = prompt('Enter project name:', currentProjectName);
     if (!projectName) return;
     
     const project = {
-      id: Date.now().toString(),
       name: projectName,
       html,
       css,
@@ -426,50 +509,72 @@ export default function CodeEditor() {
       lastModified: new Date().toISOString()
     };
     
-    setSavedProjects(prev => {
-      const existingIndex = prev.findIndex(p => p.name === projectName);
-      let updated;
+    try {
+      setLoading(true);
+      let savedProject;
       
-      if (existingIndex >= 0) {
-        updated = [...prev];
-        updated[existingIndex] = project;
+      // Check if project with same name exists
+      const existingProject = savedProjects.find(p => p.name === projectName);
+      
+      if (existingProject) {
+        // Update existing project
+        savedProject = await FirebaseStorage.updateProject(existingProject.id, project);
+        setSavedProjects(prev => prev.map(p => p.id === existingProject.id ? savedProject : p));
       } else {
-        updated = [...prev, project];
+        // Create new project
+        savedProject = await FirebaseStorage.saveProject(project);
+        setSavedProjects(prev => [...prev, savedProject]);
       }
       
-      // Save to localStorage
-      Storage.saveProjects(updated);
-      return updated;
-    });
-    
-    setCurrentProjectName(projectName);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    console.log(`💾 Project "${projectName}" saved to localStorage`);
-  };
-
-  const loadProjectById = (projectId) => {
-    const project = savedProjects.find(p => p.id === projectId);
-    if (project) {
-      setHtml(project.html);
-      setCss(project.css);
-      setJs(project.js);
-      setCurrentProjectName(project.name);
-      setShowProjectManager(false);
-      // Clear iframe if autoRun is off
-      if (!autoRun && iframeRef.current) {
-        iframeRef.current.srcdoc = '';
-      }
-      console.log(`📂 Loaded project: ${project.name}`);
+      setCurrentProjectName(projectName);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      console.log(`💾 Project "${projectName}" saved to Firebase`);
+    } catch (error) {
+      console.error('Failed to save project:', error);
+      alert('Failed to save project. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const deleteProject = (projectId) => {
+  const loadProjectById = async (projectId) => {
+    try {
+      setLoading(true);
+      const project = await FirebaseStorage.loadProjectById(projectId);
+      if (project) {
+        setHtml(project.html);
+        setCss(project.css);
+        setJs(project.js);
+        setCurrentProjectName(project.name);
+        setShowProjectManager(false);
+        if (!autoRun && iframeRef.current) {
+          iframeRef.current.srcdoc = '';
+        }
+        console.log(`📂 Loaded project from Firebase: ${project.name}`);
+      }
+    } catch (error) {
+      console.error('Failed to load project:', error);
+      alert('Failed to load project. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteProject = async (projectId) => {
     if (window.confirm('Are you sure you want to delete this project?')) {
-      const updatedProjects = savedProjects.filter(p => p.id !== projectId);
-      setSavedProjects(updatedProjects);
-      Storage.saveProjects(updatedProjects);
-      console.log('🗑️ Project deleted from localStorage');
+      try {
+        setLoading(true);
+        await FirebaseStorage.deleteProject(projectId);
+        const updatedProjects = savedProjects.filter(p => p.id !== projectId);
+        setSavedProjects(updatedProjects);
+        console.log('🗑️ Project deleted from Firebase');
+      } catch (error) {
+        console.error('Failed to delete project:', error);
+        alert('Failed to delete project. Please try again.');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -480,7 +585,6 @@ export default function CodeEditor() {
       setJs(TEMPLATES.blank.js);
       setCurrentProjectName('Untitled Project');
       setConsoleOutput([]);
-      // Clear iframe if autoRun is off
       if (!autoRun && iframeRef.current) {
         iframeRef.current.srcdoc = '';
       }
@@ -498,16 +602,15 @@ export default function CodeEditor() {
     setConsoleOutput([]);
   };
 
-  // Clear all data (for debugging/reset)
   const clearAllData = () => {
     if (window.confirm('Clear ALL saved projects and session data? This cannot be undone.')) {
-      Storage.clearAll();
+      LocalStorage.clearAll();
       setSavedProjects([]);
       setHtml(TEMPLATES.blank.html);
       setCss(TEMPLATES.blank.css);
       setJs(TEMPLATES.blank.js);
       setCurrentProjectName('Untitled Project');
-      console.log('🧹 All data cleared');
+      console.log('🧹 All local data cleared');
     }
   };
 
@@ -542,206 +645,194 @@ export default function CodeEditor() {
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     if (diffDays < 7) return `${diffDays}d ago`;
+    
     return date.toLocaleDateString();
   };
 
-  const headerBg = theme === 'dark' ? 'bg-gray-800' : 'bg-white';
-  const borderColor = theme === 'dark' ? 'border-gray-700' : 'border-gray-300';
-  const modalBg = theme === 'dark' ? 'bg-gray-800' : 'bg-white';
-
   return (
-    <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'} flex flex-col`}>
+    <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'} transition-colors duration-200`}>
       {/* Header */}
-      <div className={`${headerBg} ${borderColor} border-b p-3 flex items-center justify-between flex-wrap gap-3 shadow-lg`}>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Code2 className="w-6 h-6 text-blue-500" />
-            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-500 to-purple-600 bg-clip-text text-transparent">
-              Code Studio Pro
-            </h1>
+      <header className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b px-6 py-4`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <Code2 className="w-8 h-8 text-blue-500" />
+              <h1 className="text-xl font-bold">CodeStudio</h1>
+            </div>
+            <div className="text-sm opacity-70">
+              {currentProjectName}
+            </div>
           </div>
           
-          <div className={`px-3 py-1 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} text-sm font-medium flex items-center gap-2`}>
-            <Edit2 className="w-3 h-3" />
-            {currentProjectName}
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors`}
+              title="Toggle theme"
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+            
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors`}
+              title="Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
-          
-          <select 
-            className={`${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2 focus:ring-blue-500 transition`}
-            onChange={(e) => loadTemplate(e.target.value)}
-            value=""
-          >
-            <option value="">📚 Templates</option>
-            {Object.entries(TEMPLATES).map(([key, template]) => (
-              <option key={key} value={key}>{template.name}</option>
-            ))}
-          </select>
         </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={createNewProject}
-            className={`flex items-center gap-1.5 ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600'} text-white px-3 py-2 rounded-lg text-sm font-medium transition`}
-            title="New Project"
-          >
-            <Plus className="w-4 h-4" />
-            New
-          </button>
-
-          <button
-            onClick={saveProject}
-            className={`flex items-center gap-1.5 ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-3 py-2 rounded-lg text-sm font-medium transition`}
-            title="Save Project"
-          >
-            <Save className="w-4 h-4" />
-            Save
-          </button>
-
-          <button
-            onClick={() => setShowProjectManager(true)}
-            className={`flex items-center gap-1.5 ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} px-3 py-2 rounded-lg text-sm font-medium transition relative`}
-            title="Projects"
-          >
-            <FolderOpen className="w-4 h-4" />
-            Projects
-            {savedProjects.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                {savedProjects.length}
-              </span>
-            )}
-          </button>
-          
-          <label className="flex items-center gap-2 text-sm font-medium">
-            <input 
-              type="checkbox" 
-              checked={autoRun} 
-              onChange={(e) => setAutoRun(e.target.checked)}
-              className="w-4 h-4 text-blue-500 rounded focus:ring-2 focus:ring-blue-500"
-            />
-            Auto Run
-          </label>
-
-          <label className="flex items-center gap-2 text-sm font-medium">
-            <input 
-              type="checkbox" 
-              checked={autoSaveEnabled} 
-              onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-              className="w-4 h-4 text-blue-500 rounded focus:ring-2 focus:ring-blue-500"
-            />
-            Auto Save
-          </label>
-          
-          <button
-            onClick={runCode}
-            className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-md"
-          >
-            <Play className="w-4 h-4" />
-            Run
-          </button>
-
-          <div className={`flex items-center gap-1 ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} rounded-lg p-1`}>
-            <button
-              onClick={() => setLayout('split')}
-              className={`p-2 rounded-lg transition ${layout === 'split' ? 'bg-blue-500 text-white' : 'hover:bg-gray-600'}`}
-              title="Split View"
-            >
-              <Layout className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setLayout('preview')}
-              className={`p-2 rounded-lg transition ${layout === 'preview' ? 'bg-blue-500 text-white' : 'hover:bg-gray-600'}`}
-              title="Preview Only"
-            >
-              <Maximize2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setLayout('editor')}
-              className={`p-2 rounded-lg transition ${layout === 'editor' ? 'bg-blue-500 text-white' : 'hover:bg-gray-600'}`}
-              title="Editor Only"
-            >
-              <Code2 className="w-4 h-4" />
-            </button>
-          </div>
-
-          <button
-            onClick={shareCode}
-            className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-300'} rounded-lg transition`}
-            title="Share Code"
-          >
-            <Share2 className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={downloadCode}
-            className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-300'} rounded-lg transition`}
-            title="Download HTML"
-          >
-            <Download className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-300'} rounded-lg transition`}
-            title="Toggle Theme"
-          >
-            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-300'} rounded-lg transition`}
-            title="Settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+      </header>
 
       {/* Settings Panel */}
       {showSettings && (
-        <div className={`${headerBg} ${borderColor} border-b p-4 flex items-center gap-6 flex-wrap`}>
-          <label className="flex items-center gap-2 text-sm">
-            Font Size:
-            <input
-              type="range"
-              min="10"
-              max="24"
-              value={fontSize}
-              onChange={(e) => setFontSize(parseInt(e.target.value))}
-              className="w-32"
-            />
-            <span className="font-mono">{fontSize}px</span>
-          </label>
-          
-          <div className={`px-3 py-1 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} text-xs flex items-center gap-2`}>
-            💾 {savedProjects.length} Projects Saved
+        <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b px-6 py-4`}>
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium">Font Size:</label>
+              <select 
+                value={fontSize}
+                onChange={(e) => setFontSize(Number(e.target.value))}
+                className={`px-2 py-1 rounded border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}
+              >
+                {[12, 14, 16, 18, 20].map(size => (
+                  <option key={size} value={size}>{size}px</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="autoRun"
+                checked={autoRun}
+                onChange={(e) => setAutoRun(e.target.checked)}
+                className="rounded"
+              />
+              <label htmlFor="autoRun" className="text-sm font-medium">Auto-run</label>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="autoSave"
+                checked={autoSaveEnabled}
+                onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                className="rounded"
+              />
+              <label htmlFor="autoSave" className="text-sm font-medium">Auto-save session</label>
+            </div>
           </div>
-
-          <button
-            onClick={clearAllData}
-            className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs transition"
-            title="Clear All Data"
-          >
-            Clear All Data
-          </button>
         </div>
       )}
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Editor Panel */}
-        {layout !== 'preview' && (
-          <div className={`${layout === 'editor' ? 'flex-1' : 'w-1/2'} flex flex-col ${borderColor} border-r`}>
-            {/* Tabs */}
-            <div className={`flex ${headerBg} ${borderColor} border-b`}>
-              {['html', 'css', 'js'].map(tab => (
+      <div className="flex flex-col h-[calc(100vh-73px)]">
+        {/* Toolbar */}
+        <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b px-6 py-3`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <select 
+                onChange={(e) => loadTemplate(e.target.value)}
+                className={`px-3 py-2 rounded-lg border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} text-sm font-medium`}
+              >
+                <option value="">📁 Templates</option>
+                {Object.entries(TEMPLATES).map(([key, template]) => (
+                  <option key={key} value={key}>{template.name}</option>
+                ))}
+              </select>
+              
+              <select 
+                value={layout}
+                onChange={(e) => setLayout(e.target.value)}
+                className={`px-3 py-2 rounded-lg border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} text-sm font-medium`}
+              >
+                <option value="split">Split View</option>
+                <option value="vertical">Vertical</option>
+                <option value="horizontal">Horizontal</option>
+              </select>
+              
+              <button
+                onClick={createNewProject}
+                className={`px-3 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors text-sm font-medium flex items-center space-x-2`}
+              >
+                <Plus className="w-4 h-4" />
+                <span>New</span>
+              </button>
+              
+              <button
+                onClick={() => setShowProjectManager(true)}
+                className={`px-3 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors text-sm font-medium flex items-center space-x-2`}
+              >
+                <FolderOpen className="w-4 h-4" />
+                <span>Projects</span>
+              </button>
+            </div>
+            
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={saveProject}
+                disabled={loading}
+                className={`px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors text-sm font-medium flex items-center space-x-2 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>Save</span>
+              </button>
+              
+              <button
+                onClick={copyCode}
+                className={`px-3 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors text-sm font-medium flex items-center space-x-2`}
+              >
+                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>{copied ? 'Copied!' : 'Copy'}</span>
+              </button>
+              
+              <button
+                onClick={shareCode}
+                className="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors text-sm font-medium flex items-center space-x-2"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>Share</span>
+              </button>
+              
+              <button
+                onClick={downloadCode}
+                className="px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition-colors text-sm font-medium flex items-center space-x-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export</span>
+              </button>
+              
+              {!autoRun && (
+                <button
+                  onClick={runCode}
+                  className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors text-sm font-medium flex items-center space-x-2"
+                >
+                  <Play className="w-4 h-4" />
+                  <span>Run</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Editor and Preview */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Editor Tabs */}
+          <div className={`flex-1 flex flex-col ${layout === 'split' ? 'w-1/2' : layout === 'vertical' ? 'w-full' : 'w-1/2'} ${layout === 'horizontal' ? 'h-1/2' : 'h-full'}`}>
+            <div className={`flex border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+              {['html', 'css', 'js'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-6 py-3 text-sm font-semibold transition relative ${
+                  className={`px-6 py-3 text-sm font-medium transition-colors relative ${
                     activeTab === tab 
-                      ? 'text-blue-500 bg-gradient-to-b from-transparent to-blue-500/10' 
-                      : `${theme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-gray-750' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`
+                      ? theme === 'dark' 
+                        ? 'bg-gray-800 text-white' 
+                        : 'bg-white text-gray-900'
+                      : theme === 'dark'
+                        ? 'text-gray-400 hover:text-white'
+                        : 'text-gray-500 hover:text-gray-900'
                   }`}
                 >
                   {tab.toUpperCase()}
@@ -750,20 +841,9 @@ export default function CodeEditor() {
                   )}
                 </button>
               ))}
-              
-              <div className="ml-auto flex items-center gap-2 px-4">
-                <button
-                  onClick={copyCode}
-                  className={`text-xs flex items-center gap-1 ${theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
-                  title="Copy Code"
-                >
-                  {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                </button>
-              </div>
             </div>
-
-            {/* @monaco-editor/react */}
-            <div className="flex-1 overflow-hidden">
+            
+            <div className="flex-1 relative" key={`editor-${showSettings}`}>
               <Editor
                 height="100%"
                 language={getLanguage()}
@@ -771,168 +851,181 @@ export default function CodeEditor() {
                 onChange={handleEditorChange}
                 theme={theme === 'dark' ? 'vs-dark' : 'vs'}
                 options={{
-                  fontSize: fontSize,
-                  automaticLayout: true,
-                  minimap: { enabled: true },
+                  fontSize,
+                  minimap: { enabled: false },
                   scrollBeyondLastLine: false,
-                  wordWrap: 'on',
-                  lineNumbers: 'on',
-                  renderWhitespace: 'selection',
+                  automaticLayout: true,
                   tabSize: 2,
                   insertSpaces: true,
-                  formatOnPaste: true,
-                  formatOnType: true,
-                  suggestOnTriggerCharacters: true,
-                  quickSuggestions: true,
+                  wordWrap: 'on',
+                  lineNumbers: 'on',
                   folding: true,
-                  bracketPairColorization: { enabled: true }
+                  lineNumbersMinChars: 3,
+                  scrollbar: {
+                    vertical: 'auto',
+                    horizontal: 'auto'
+                  }
                 }}
-                loading={
-                  <div className={`flex items-center justify-center h-full ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-100'}`}>
-                    <div className="text-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
-                      <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>Loading Editor...</p>
-                    </div>
-                  </div>
-                }
               />
             </div>
+          </div>
 
-            {/* Console */}
-            <div className={`h-48 ${theme === 'dark' ? 'bg-gray-950' : 'bg-gray-100'} ${borderColor} border-t flex flex-col`}>
-              <div className={`flex items-center justify-between px-4 py-2 ${headerBg} ${borderColor} border-b`}>
-                <span className="text-sm font-semibold flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                  Console ({consoleOutput.length})
-                </span>
+          {/* Preview */}
+          <div className={`flex-1 flex flex-col ${layout === 'split' ? 'w-1/2' : layout === 'vertical' ? 'w-full' : 'w-1/2'} ${layout === 'horizontal' ? 'h-1/2' : 'h-full'} border-l ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className={`flex items-center justify-between px-6 py-3 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="flex items-center space-x-2">
+                <Layout className="w-4 h-4" />
+                <span className="text-sm font-medium">Preview</span>
+              </div>
+              <div className="flex items-center space-x-2">
                 <button
                   onClick={clearConsole}
-                  className={`text-xs ${theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'} flex items-center gap-1 transition`}
+                  className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
+                  title="Clear console"
                 >
-                  <Trash2 className="w-3 h-3" />
-                  Clear
+                  <Trash2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => iframeRef.current?.requestFullscreen?.()}
+                  className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
+                  title="Fullscreen"
+                >
+                  <Maximize2 className="w-4 h-4" />
                 </button>
               </div>
-              <div className="flex-1 overflow-auto p-3 font-mono text-xs space-y-1">
-                {consoleOutput.length === 0 ? (
-                  <div className={`${theme === 'dark' ? 'text-gray-600' : 'text-gray-400'} text-center py-8`}>
-                    Console output will appear here...
+            </div>
+            
+            <div className="flex-1 relative">
+              <iframe
+                ref={iframeRef}
+                title="preview"
+                className="w-full h-full border-0"
+                sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-popups"
+                srcDoc={autoRun ? generateSrcDoc() : ''}
+              />
+            </div>
+            
+            {/* Console */}
+            <div className={`border-t ${theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-100'} max-h-32 overflow-y-auto`}>
+              <div className="px-4 py-2 text-sm font-medium flex items-center justify-between">
+                <span>Console</span>
+                <span className="text-xs opacity-70">{consoleOutput.length} messages</span>
+              </div>
+              <div className="px-4 pb-2 font-mono text-sm">
+                {consoleOutput.map((log, index) => (
+                  <div
+                    key={index}
+                    className={`py-1 border-l-2 pl-2 ${
+                      log.level === 'error' 
+                        ? 'border-red-500 text-red-400' 
+                        : log.level === 'warn'
+                        ? 'border-yellow-500 text-yellow-400'
+                        : log.level === 'info'
+                        ? 'border-blue-500 text-blue-400'
+                        : 'border-green-500 text-green-400'
+                    }`}
+                  >
+                    <span className="opacity-70 text-xs">[{log.timestamp}]</span> {log.data.map(arg => 
+                      typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+                    ).join(' ')}
                   </div>
-                ) : (
-                  consoleOutput.map((log, i) => (
-                    <div
-                      key={i}
-                      className={`py-1 px-2 rounded ${
-                        log.level === 'error' ? 'text-red-400 bg-red-500/10' :
-                        log.level === 'warn' ? 'text-yellow-400 bg-yellow-500/10' :
-                        log.level === 'info' ? 'text-blue-400 bg-blue-500/10' :
-                        theme === 'dark' ? 'text-green-400 bg-green-500/10' : 'text-green-700 bg-green-100'
-                      }`}
-                    >
-                      <span className={theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}>
-                        [{log.timestamp}]
-                      </span>{' '}
-                      {log.data.map(d => typeof d === 'object' ? JSON.stringify(d, null, 2) : String(d)).join(' ')}
-                    </div>
-                  ))
+                ))}
+                {consoleOutput.length === 0 && (
+                  <div className="py-2 text-center text-gray-500 text-sm">
+                    No console messages
+                  </div>
                 )}
               </div>
             </div>
           </div>
-        )}
-
-        {/* Preview Panel */}
-        {layout !== 'editor' && (
-          <div className={`${layout === 'preview' ? 'flex-1' : 'flex-1'} bg-white relative`}>
-            <div className="absolute top-2 left-2 z-10 bg-black/70 text-white text-xs px-3 py-1 rounded-full font-mono flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-              Live Preview
-            </div>
-            <button
-              onClick={runCode}
-              className="absolute top-2 right-2 z-10 bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-full shadow-lg transition"
-              title="Refresh Preview"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-            <iframe
-              ref={iframeRef}
-              srcDoc={generateSrcDoc()}
-              className="w-full h-full border-0"
-              title="preview"
-              sandbox="allow-scripts allow-modals allow-forms allow-same-origin allow-popups"
-            />
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Project Manager Modal */}
       {showProjectManager && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className={`${modalBg} rounded-2xl shadow-2xl max-w-3xl w-full max-h-[80vh] overflow-hidden flex flex-col`}>
-            <div className={`${borderColor} border-b p-6 flex items-center justify-between`}>
-              <div>
-                <h2 className="text-2xl font-bold">My Projects</h2>
-                <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
-                  {savedProjects.length} project{savedProjects.length !== 1 ? 's' : ''} saved in localStorage
-                </p>
-              </div>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className={`rounded-lg w-full max-w-4xl max-h-[80vh] overflow-hidden ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+            <div className={`px-6 py-4 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} flex items-center justify-between`}>
+              <h2 className="text-xl font-bold">Project Manager</h2>
               <button
                 onClick={() => setShowProjectManager(false)}
-                className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} rounded-lg transition`}
+                className={`p-2 rounded-lg ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             
-            <div className="flex-1 overflow-auto p-6">
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
               {savedProjects.length === 0 ? (
                 <div className="text-center py-12">
-                  <FolderOpen className={`w-16 h-16 mx-auto mb-4 ${theme === 'dark' ? 'text-gray-600' : 'text-gray-400'}`} />
-                  <p className={`text-lg ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-                    No saved projects yet
-                  </p>
-                  <p className={`text-sm ${theme === 'dark' ? 'text-gray-500' : 'text-gray-500'} mt-2`}>
-                    Click "Save" to store your current project
-                  </p>
+                  <FolderOpen className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                  <h3 className="text-lg font-medium mb-2">No projects saved</h3>
+                  <p className="text-gray-500">Your saved projects will appear here</p>
                 </div>
               ) : (
-                <div className="grid gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {savedProjects.map((project) => (
                     <div
                       key={project.id}
-                      className={`${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-650' : 'bg-gray-100 hover:bg-gray-200'} rounded-xl p-4 transition cursor-pointer group`}
-                      onClick={() => loadProjectById(project.id)}
+                      className={`p-4 rounded-lg border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-200'} hover:shadow-lg transition-all`}
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-lg mb-1">{project.name}</h3>
-                          <div className="flex items-center gap-3 text-sm text-gray-400">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="w-3 h-3" />
-                              {formatDate(project.timestamp)}
-                            </span>
-                            <span>•</span>
-                            <span>{project.html.length + project.css.length + project.js.length} chars</span>
-                            <span>•</span>
-                            <span className="text-green-400">💾 Saved</span>
-                          </div>
+                      <div className="flex items-start justify-between mb-3">
+                        <h3 className="font-medium truncate flex-1">{project.name}</h3>
+                        <div className="flex space-x-1 ml-2">
+                          <button
+                            onClick={() => loadProjectById(project.id)}
+                            className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'} transition-colors`}
+                            title="Load project"
+                          >
+                            <FolderOpen className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => deleteProject(project.id)}
+                            className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'} transition-colors`}
+                            title="Delete project"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteProject(project.id);
-                          }}
-                          className={`opacity-0 group-hover:opacity-100 p-2 ${theme === 'dark' ? 'hover:bg-red-500/20 text-red-400' : 'hover:bg-red-100 text-red-600'} rounded-lg transition`}
-                          title="Delete Project"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      </div>
+                      
+                      <div className="flex items-center space-x-4 text-xs text-gray-500 mb-3">
+                        <div className="flex items-center space-x-1">
+                          <Calendar className="w-3 h-3" />
+                          <span>{formatDate(project.createdAt)}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex space-x-2">
+                        <span className={`px-2 py-1 rounded text-xs ${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-200'}`}>
+                          HTML
+                        </span>
+                        <span className={`px-2 py-1 rounded text-xs ${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-200'}`}>
+                          CSS
+                        </span>
+                        <span className={`px-2 py-1 rounded text-xs ${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-200'}`}>
+                          JS
+                        </span>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
+            
+            <div className={`px-6 py-4 border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} flex justify-between`}>
+              <button
+                onClick={clearAllData}
+                className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                Clear All Data
+              </button>
+              <button
+                onClick={() => setShowProjectManager(false)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -940,51 +1033,46 @@ export default function CodeEditor() {
 
       {/* Share Modal */}
       {showShareModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className={`${modalBg} rounded-2xl shadow-2xl max-w-2xl w-full p-6`}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold flex items-center gap-2">
-                <Link2 className="w-6 h-6 text-blue-500" />
-                Share Your Project
-              </h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className={`rounded-lg w-full max-w-md ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+            <div className={`px-6 py-4 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} flex items-center justify-between`}>
+              <h2 className="text-xl font-bold">Share Project</h2>
               <button
                 onClick={() => setShowShareModal(false)}
-                className={`p-2 ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} rounded-lg transition`}
+                className={`p-2 rounded-lg ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             
-            <div className={`${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'} rounded-lg p-4 mb-4`}>
-              <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'} mb-2`}>
-                Share URL (compressed):
-              </p>
-              <div className="flex items-center gap-2">
+            <div className="p-6">
+              <p className="mb-4 text-sm opacity-70">Share this URL to collaborate:</p>
+              <div className="flex space-x-2">
                 <input
                   type="text"
                   value={shareUrl}
                   readOnly
-                  className={`flex-1 ${theme === 'dark' ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-300'} border rounded-lg px-3 py-2 text-sm font-mono`}
+                  className={`flex-1 px-3 py-2 rounded-lg border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} text-sm`}
                 />
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(shareUrl);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  }}
-                  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition flex items-center gap-2"
+                  onClick={() => navigator.clipboard.writeText(shareUrl)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center space-x-2"
                 >
-                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copied ? 'Copied!' : 'Copy'}
+                  <Copy className="w-4 h-4" />
+                  <span>Copy</span>
                 </button>
               </div>
             </div>
-            
-            <div className={`${theme === 'dark' ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border rounded-lg p-4`}>
-              <p className={`text-sm ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>
-                ✨ URL automatically copied to clipboard! Share it with anyone to collaborate.
-              </p>
-            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className={`rounded-lg p-6 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} flex items-center space-x-3`}>
+            <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
+            <span className="font-medium">Processing...</span>
           </div>
         </div>
       )}
