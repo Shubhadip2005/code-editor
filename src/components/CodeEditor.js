@@ -966,7 +966,7 @@ export default function CodeEditor() {
         </div>
 
         {/* Console Section - Only show in layouts that include console */}
-        {(layout === 'editorConsole' || layout === 'editorPreviewConsole') && (
+        {(layout === 'editorConsole') && (
           <div className={`flex flex-col ${layoutClasses.console} ${
             layout === 'editorConsole' ? 'h-1/4' : ''
           } ${theme === 'dark' ? 'bg-gray-800 border-t border-gray-700' : 'bg-white border-t border-gray-200'}`}>
