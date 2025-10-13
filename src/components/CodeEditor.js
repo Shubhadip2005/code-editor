@@ -193,7 +193,7 @@ export default function CodeEditor() {
   const [css, setCss] = useState(TEMPLATES.blank.css);
   const [js, setJs] = useState(TEMPLATES.blank.js);
   const [activeTab, setActiveTab] = useState('html');
-  const [layout, setLayout] = useState('split');
+  const [layout, setLayout] = useState('editorPreview');
   const [autoRun, setAutoRun] = useState(true);
   const [consoleOutput, setConsoleOutput] = useState([]);
   const [theme, setTheme] = useState('dark');
@@ -622,56 +622,233 @@ export default function CodeEditor() {
     return date.toLocaleDateString();
   };
 
+  // Layout configuration
+  const getLayoutClasses = () => {
+    switch (layout) {
+      case 'editorOnly':
+        return {
+          editor: 'w-full h-full',
+          preview: 'hidden',
+          console: 'hidden'
+        };
+      case 'editorConsole':
+        return {
+          editor: 'w-full h-3/4',
+          preview: 'hidden',
+          console: 'w-full h-1/4'
+        };
+      case 'fullPreview':
+        return {
+          editor: 'hidden',
+          preview: 'w-full h-full',
+          console: 'hidden'
+        };
+      case 'editorPreview':
+      default:
+        return {
+          editor: 'w-1/2 h-full',
+          preview: 'w-1/2 h-full',
+          console: 'hidden'
+        };
+    }
+  };
+
+  const layoutClasses = getLayoutClasses();
+
   return (
-    <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'} transition-colors duration-200`}>
-      {/* Header */}
-      <header className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b px-6 py-4`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <Code2 className="w-8 h-8 text-blue-500" />
-              <h1 className="text-xl font-bold">CodeStudio</h1>
-            </div>
-            <div className="text-sm opacity-70">
-              {currentProjectName}
-              {lastSaved && (
-                <span className="ml-2 text-xs text-green-500">
-                  • Auto-saved: {lastSaved}
-                </span>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors`}
-              title="Toggle theme"
+    <div className={`h-screen flex flex-col ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-900'}`}>
+      {/* Top Bar */}
+      <div className={`flex items-center justify-between p-4 border-b ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+        <div className="flex items-center space-x-4">
+          <h1 className="text-xl font-bold">⚡ CodeStudio</h1>
+          <div className="flex items-center space-x-2">
+            <select 
+              value={currentProjectName}
+              onChange={(e) => {
+                const selectedProject = savedProjects.find(p => p.name === e.target.value);
+                if (selectedProject) {
+                  loadProjectById(selectedProject.id);
+                }
+              }}
+              className={`px-3 py-1 rounded border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}
             >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
-            
+              <option value="Untitled Project">Untitled Project</option>
+              {savedProjects.map((project) => (
+                <option key={project.id} value={project.name}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
             <button
-              onClick={() => setShowSettings(!showSettings)}
-              className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors`}
-              title="Settings"
+              onClick={createNewProject}
+              className={`p-2 rounded hover:bg-opacity-80 transition-colors ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+              title="New Project"
             >
-              <Settings className="w-4 h-4" />
+              <Plus size={16} />
             </button>
           </div>
         </div>
-      </header>
+
+        <div className="flex items-center space-x-2">
+          {lastSaved && (
+            <span className={`text-sm px-2 py-1 rounded ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}>
+              💾 {lastSaved}
+            </span>
+          )}
+          <button
+            onClick={saveProject}
+            disabled={loading}
+            className={`flex items-center space-x-2 px-4 py-2 rounded transition-colors ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-opacity-80'} ${theme === 'dark' ? 'bg-blue-600' : 'bg-blue-500 text-white'}`}
+          >
+            <Save size={16} />
+            <span>{loading ? 'Saving...' : 'Save'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className={`flex items-center justify-between p-3 border-b ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+        <div className="flex items-center space-x-4">
+          {/* Layout Controls */}
+          <div className="flex items-center space-x-1 bg-gray-700 rounded-lg p-1">
+            <button
+              onClick={() => setLayout('editorPreview')}
+              className={`p-2 rounded transition-colors ${
+                layout === 'editorPreview' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'text-gray-300 hover:bg-gray-600'
+              }`}
+              title="Editor + Preview"
+            >
+              <Layout size={16} />
+            </button>
+            <button
+              onClick={() => setLayout('editorOnly')}
+              className={`p-2 rounded transition-colors ${
+                layout === 'editorOnly' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'text-gray-300 hover:bg-gray-600'
+              }`}
+              title="Editor Only"
+            >
+              <Code2 size={16} />
+            </button>
+            <button
+              onClick={() => setLayout('editorConsole')}
+              className={`p-2 rounded transition-colors ${
+                layout === 'editorConsole' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'text-gray-300 hover:bg-gray-600'
+              }`}
+              title="Editor + Console"
+            >
+              <Maximize2 size={16} />
+            </button>
+            <button
+              onClick={() => setLayout('fullPreview')}
+              className={`p-2 rounded transition-colors ${
+                layout === 'fullPreview' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'text-gray-300 hover:bg-gray-600'
+              }`}
+              title="Full Preview"
+            >
+              <Play size={16} />
+            </button>
+          </div>
+
+          {/* Template Selector */}
+          <select 
+            onChange={(e) => loadTemplate(e.target.value)}
+            className={`px-3 py-1 rounded border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}
+          >
+            <option value="">Choose Template...</option>
+            {Object.entries(TEMPLATES).map(([key, template]) => (
+              <option key={key} value={key}>{template.name}</option>
+            ))}
+          </select>
+
+          {/* Auto-run Toggle */}
+          <label className="flex items-center space-x-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoRun}
+              onChange={(e) => setAutoRun(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm">Auto-run</span>
+          </label>
+
+          {!autoRun && (
+            <button
+              onClick={runCode}
+              className={`flex items-center space-x-2 px-3 py-1 rounded transition-colors ${theme === 'dark' ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600 text-white'}`}
+            >
+              <Play size={14} />
+              <span>Run</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={copyCode}
+            className={`flex items-center space-x-2 px-3 py-1 rounded transition-colors ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            <span>{copied ? 'Copied!' : 'Copy'}</span>
+          </button>
+
+          <button
+            onClick={downloadCode}
+            className={`flex items-center space-x-2 px-3 py-1 rounded transition-colors ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+          >
+            <Download size={14} />
+            <span>Export</span>
+          </button>
+
+          <button
+            onClick={shareCode}
+            className={`flex items-center space-x-2 px-3 py-1 rounded transition-colors ${theme === 'dark' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-purple-500 hover:bg-purple-600 text-white'}`}
+          >
+            <Share2 size={14} />
+            <span>Share</span>
+          </button>
+
+          <button
+            onClick={() => setShowProjectManager(true)}
+            className={`flex items-center space-x-2 px-3 py-1 rounded transition-colors ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+          >
+            <FolderOpen size={14} />
+            <span>Projects</span>
+          </button>
+
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className={`p-2 rounded transition-colors ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+          >
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className={`p-2 rounded transition-colors ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+          >
+            <Settings size={16} />
+          </button>
+        </div>
+      </div>
 
       {/* Settings Panel */}
       {showSettings && (
-        <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b px-6 py-4`}>
+        <div className={`p-4 border-b ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
           <div className="flex items-center space-x-6">
-            <div className="flex items-center space-x-2">
-              <label className="text-sm font-medium">Font Size:</label>
+            <div>
+              <label className="block text-sm font-medium mb-1">Font Size</label>
               <select 
                 value={fontSize}
                 onChange={(e) => setFontSize(Number(e.target.value))}
-                className={`px-2 py-1 rounded border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}
+                className={`px-3 py-1 rounded border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}
               >
                 {[12, 14, 16, 18, 20].map(size => (
                   <option key={size} value={size}>{size}px</option>
@@ -679,149 +856,60 @@ export default function CodeEditor() {
               </select>
             </div>
             
-            <div className="flex items-center space-x-2">
+            <label className="flex items-center space-x-2 cursor-pointer">
               <input
                 type="checkbox"
-                id="autoRun"
-                checked={autoRun}
-                onChange={(e) => setAutoRun(e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="autoRun" className="text-sm font-medium">Auto-run</label>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="autoSave"
                 checked={autoSaveEnabled}
                 onChange={(e) => setAutoSaveEnabled(e.target.checked)}
                 className="rounded"
               />
-              <label htmlFor="autoSave" className="text-sm font-medium">Auto-save session</label>
-            </div>
+              <span className="text-sm">Auto-save</span>
+            </label>
+
+            <button
+              onClick={clearAllData}
+              className={`flex items-center space-x-2 px-3 py-1 rounded transition-colors ${theme === 'dark' ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600 text-white'}`}
+            >
+              <Trash2 size={14} />
+              <span>Clear All Data</span>
+            </button>
           </div>
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="flex flex-col h-[calc(100vh-73px)]">
-        {/* Toolbar */}
-        <div className={`${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b px-6 py-3`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <select 
-                onChange={(e) => loadTemplate(e.target.value)}
-                className={`px-3 py-2 rounded-lg border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} text-sm font-medium`}
-              >
-                <option value="">📁 Templates</option>
-                {Object.entries(TEMPLATES).map(([key, template]) => (
-                  <option key={key} value={key}>{template.name}</option>
-                ))}
-              </select>
-              
-              <select 
-                value={layout}
-                onChange={(e) => setLayout(e.target.value)}
-                className={`px-3 py-2 rounded-lg border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'} text-sm font-medium`}
-              >
-                <option value="split">Split View</option>
-                <option value="vertical">Vertical</option>
-                <option value="horizontal">Horizontal</option>
-              </select>
-              
-              <button
-                onClick={createNewProject}
-                className={`px-3 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors text-sm font-medium flex items-center space-x-2`}
-              >
-                <Plus className="w-4 h-4" />
-                <span>New</span>
-              </button>
-              
-              <button
-                onClick={() => setShowProjectManager(true)}
-                className={`px-3 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors text-sm font-medium flex items-center space-x-2`}
-              >
-                <FolderOpen className="w-4 h-4" />
-                <span>Projects</span>
-              </button>
-            </div>
-            
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={saveProject}
-                disabled={loading}
-                className={`px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors text-sm font-medium flex items-center space-x-2 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                <span>Save</span>
-              </button>
-              
-              <button
-                onClick={copyCode}
-                className={`px-3 py-2 rounded-lg ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'} transition-colors text-sm font-medium flex items-center space-x-2`}
-              >
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                <span>{copied ? 'Copied!' : 'Copy'}</span>
-              </button>
-              
-              <button
-                onClick={shareCode}
-                className="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors text-sm font-medium flex items-center space-x-2"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Share</span>
-              </button>
-              
-              <button
-                onClick={downloadCode}
-                className="px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white transition-colors text-sm font-medium flex items-center space-x-2"
-              >
-                <Download className="w-4 h-4" />
-                <span>Export</span>
-              </button>
-              
-              {!autoRun && (
-                <button
-                  onClick={runCode}
-                  className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors text-sm font-medium flex items-center space-x-2"
-                >
-                  <Play className="w-4 h-4" />
-                  <span>Run</span>
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Editor and Preview */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Editor Tabs */}
-          <div className={`flex-1 flex flex-col ${layout === 'split' ? 'w-1/2' : layout === 'vertical' ? 'w-full' : 'w-1/2'} ${layout === 'horizontal' ? 'h-1/2' : 'h-full'}`}>
-            <div className={`flex border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
-              {['html', 'css', 'js'].map((tab) => (
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Editor and Preview Row */}
+        <div className={`flex-1 flex overflow-hidden ${
+          layout === 'editorConsole' ? 'flex-col' : ''
+        }`}>
+          {/* Editor Section */}
+          <div className={`flex flex-col ${layoutClasses.editor} ${
+            layout === 'editorConsole' ? 'h-3/4' : ''
+          }`}>
+            {/* Editor Tabs */}
+            <div className={`flex border-b ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+              {['html', 'css', 'js'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+                  className={`px-4 py-2 font-medium transition-colors ${
                     activeTab === tab 
                       ? theme === 'dark' 
-                        ? 'bg-gray-800 text-white' 
-                        : 'bg-white text-gray-900'
+                        ? 'bg-gray-700 text-white' 
+                        : 'bg-gray-200 text-gray-900'
                       : theme === 'dark'
                         ? 'text-gray-400 hover:text-white'
-                        : 'text-gray-500 hover:text-gray-900'
+                        : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
                   {tab.toUpperCase()}
-                  {activeTab === tab && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500"></div>
-                  )}
                 </button>
               ))}
             </div>
-            
-            <div className="flex-1 relative" key={`editor-${showSettings}`}>
+
+            {/* Monaco Editor */}
+            <div className="flex-1">
               <Editor
                 height="100%"
                 language={getLanguage()}
@@ -834,176 +922,156 @@ export default function CodeEditor() {
                   scrollBeyondLastLine: false,
                   automaticLayout: true,
                   tabSize: 2,
-                  insertSpaces: true,
                   wordWrap: 'on',
                   lineNumbers: 'on',
                   folding: true,
-                  lineNumbersMinChars: 3,
+                  foldingHighlight: true,
+                  showFoldingControls: 'mouseover',
+                  matchBrackets: 'always',
                   scrollbar: {
-                    vertical: 'auto',
-                    horizontal: 'auto'
-                  }
+                    verticalScrollbarSize: 8,
+                    horizontalScrollbarSize: 8,
+                  },
                 }}
               />
             </div>
           </div>
 
-          {/* Preview */}
-          <div className={`flex-1 flex flex-col ${layout === 'split' ? 'w-1/2' : layout === 'vertical' ? 'w-full' : 'w-1/2'} ${layout === 'horizontal' ? 'h-1/2' : 'h-full'} border-l ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
-            <div className={`flex items-center justify-between px-6 py-3 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
-              <div className="flex items-center space-x-2">
-                <Layout className="w-4 h-4" />
-                <span className="text-sm font-medium">Preview</span>
+          {/* Preview Section - Only show in layouts that include preview */}
+          {(layout === 'editorPreview' || layout === 'fullPreview') && (
+            <div className={`flex flex-col ${layoutClasses.preview} ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+              <div className={`flex items-center justify-between p-2 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+                <h3 className="font-medium">Preview</h3>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={runCode}
+                    className={`p-1 rounded transition-colors ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                    title="Refresh Preview"
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
               </div>
+              <div className="flex-1 relative">
+                <iframe
+                  ref={iframeRef}
+                  title="preview"
+                  className="w-full h-full border-0"
+                  sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-popups"
+                  srcDoc={autoRun ? generateSrcDoc() : ''}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Console Section - Only show in layouts that include console */}
+        {(layout === 'editorConsole' || layout === 'editorPreviewConsole') && (
+          <div className={`flex flex-col ${layoutClasses.console} ${
+            layout === 'editorConsole' ? 'h-1/4' : ''
+          } ${theme === 'dark' ? 'bg-gray-800 border-t border-gray-700' : 'bg-white border-t border-gray-200'}`}>
+            <div className={`flex items-center justify-between p-2 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+              <h3 className="font-medium">Console</h3>
               <div className="flex items-center space-x-2">
                 <button
                   onClick={clearConsole}
-                  className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
-                  title="Clear console"
+                  className={`p-1 rounded transition-colors ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                  title="Clear Console"
                 >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => iframeRef.current?.requestFullscreen?.()}
-                  className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
-                  title="Fullscreen"
-                >
-                  <Maximize2 className="w-4 h-4" />
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>
-            
-            <div className="flex-1 relative">
-              <iframe
-                ref={iframeRef}
-                title="preview"
-                className="w-full h-full border-0"
-                sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-popups"
-                srcDoc={autoRun ? generateSrcDoc() : ''}
-              />
-            </div>
-            
-            {/* Console */}
-            <div className={`border-t ${theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-100'} max-h-32 overflow-y-auto`}>
-              <div className="px-4 py-2 text-sm font-medium flex items-center justify-between">
-                <span>Console</span>
-                <span className="text-xs opacity-70">{consoleOutput.length} messages</span>
-              </div>
-              <div className="px-4 pb-2 font-mono text-sm">
-                {consoleOutput.map((log, index) => (
+            <div className="flex-1 overflow-auto font-mono text-sm">
+              {consoleOutput.length === 0 ? (
+                <div className={`p-4 text-center ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Console output will appear here
+                </div>
+              ) : (
+                consoleOutput.map((log, index) => (
                   <div
                     key={index}
-                    className={`py-1 border-l-2 pl-2 ${
-                      log.level === 'error' 
-                        ? 'border-red-500 text-red-400' 
-                        : log.level === 'warn'
-                        ? 'border-yellow-500 text-yellow-400'
-                        : log.level === 'info'
-                        ? 'border-blue-500 text-blue-400'
-                        : 'border-green-500 text-green-400'
+                    className={`p-2 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} ${
+                      log.level === 'error' ? 'text-red-400' :
+                      log.level === 'warn' ? 'text-yellow-400' :
+                      log.level === 'info' ? 'text-blue-400' :
+                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
                     }`}
                   >
-                    <span className="opacity-70 text-xs">[{log.timestamp}]</span> {log.data.map(arg => 
-                      typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-                    ).join(' ')}
+                    <div className="flex items-start space-x-2">
+                      <span className={`text-xs mt-1 flex-shrink-0 ${
+                        theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+                      }`}>
+                        {log.timestamp}
+                      </span>
+                      <span className="flex-1">
+                        {log.data.map((item, i) => {
+                          if (typeof item === 'object') {
+                            return JSON.stringify(item, null, 2);
+                          }
+                          return String(item);
+                        }).join(' ')}
+                      </span>
+                    </div>
                   </div>
-                ))}
-                {consoleOutput.length === 0 && (
-                  <div className="py-2 text-center text-gray-500 text-sm">
-                    No console messages
-                  </div>
-                )}
-              </div>
+                ))
+              )}
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Project Manager Modal */}
       {showProjectManager && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className={`rounded-lg w-full max-w-4xl max-h-[80vh] overflow-hidden ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
-            <div className={`px-6 py-4 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} flex items-center justify-between`}>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className={`w-4/5 h-4/5 rounded-lg p-6 flex flex-col ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+            <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold">Project Manager</h2>
               <button
                 onClick={() => setShowProjectManager(false)}
-                className={`p-2 rounded-lg ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
+                className={`p-2 rounded transition-colors ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
               >
-                <X className="w-5 h-5" />
+                <X size={20} />
               </button>
             </div>
             
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
+            <div className="flex-1 overflow-auto">
               {savedProjects.length === 0 ? (
-                <div className="text-center py-12">
-                  <FolderOpen className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <h3 className="text-lg font-medium mb-2">No projects saved</h3>
-                  <p className="text-gray-500">Your saved projects will appear here</p>
+                <div className={`text-center p-8 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
+                  No projects saved yet
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {savedProjects.map((project) => (
                     <div
                       key={project.id}
-                      className={`p-4 rounded-lg border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-200'} hover:shadow-lg transition-all`}
+                      className={`p-4 rounded-lg border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-200'}`}
                     >
-                      <div className="flex items-start justify-between mb-3">
-                        <h3 className="font-medium truncate flex-1">{project.name}</h3>
-                        <div className="flex space-x-1 ml-2">
-                          <button
-                            onClick={() => loadProjectById(project.id)}
-                            className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'} transition-colors`}
-                            title="Load project"
-                          >
-                            <FolderOpen className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => deleteProject(project.id)}
-                            className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'} transition-colors`}
-                            title="Delete project"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-4 text-xs text-gray-500 mb-3">
+                      <h3 className="font-bold mb-2">{project.name}</h3>
+                      <div className={`text-xs mb-3 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                         <div className="flex items-center space-x-1">
-                          <Calendar className="w-3 h-3" />
-                          <span>{formatDate(project.createdAt)}</span>
+                          <Calendar size={12} />
+                          <span>Updated {formatDate(project.updatedAt)}</span>
                         </div>
                       </div>
-                      
                       <div className="flex space-x-2">
-                        <span className={`px-2 py-1 rounded text-xs ${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-200'}`}>
-                          HTML
-                        </span>
-                        <span className={`px-2 py-1 rounded text-xs ${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-200'}`}>
-                          CSS
-                        </span>
-                        <span className={`px-2 py-1 rounded text-xs ${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-200'}`}>
-                          JS
-                        </span>
+                        <button
+                          onClick={() => loadProjectById(project.id)}
+                          className={`flex-1 py-1 px-2 rounded text-sm transition-colors ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
+                        >
+                          Load
+                        </button>
+                        <button
+                          onClick={() => deleteProject(project.id)}
+                          className={`py-1 px-2 rounded text-sm transition-colors ${theme === 'dark' ? 'bg-red-600 hover:bg-red-700' : 'bg-red-500 hover:bg-red-600 text-white'}`}
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
-            </div>
-            
-            <div className={`px-6 py-4 border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} flex justify-between`}>
-              <button
-                onClick={clearAllData}
-                className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              >
-                Clear All Data
-              </button>
-              <button
-                onClick={() => setShowProjectManager(false)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Close
-              </button>
             </div>
           </div>
         </div>
@@ -1011,46 +1079,34 @@ export default function CodeEditor() {
 
       {/* Share Modal */}
       {showShareModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className={`rounded-lg w-full max-w-md ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
-            <div className={`px-6 py-4 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'} flex items-center justify-between`}>
-              <h2 className="text-xl font-bold">Share Project</h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className={`w-1/2 rounded-lg p-6 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+            <h2 className="text-xl font-bold mb-4">Share Your Project</h2>
+            <p className="mb-4">Copy the link below to share your project:</p>
+            <div className="flex space-x-2 mb-4">
+              <input
+                type="text"
+                value={shareUrl}
+                readOnly
+                className={`flex-1 px-3 py-2 rounded border ${theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-white border-gray-300'}`}
+              />
               <button
-                onClick={() => setShowShareModal(false)}
-                className={`p-2 rounded-lg ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
+                onClick={() => {
+                  navigator.clipboard.writeText(shareUrl);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+                className={`px-4 py-2 rounded transition-colors ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
               >
-                <X className="w-5 h-5" />
+                {copied ? 'Copied!' : 'Copy'}
               </button>
             </div>
-            
-            <div className="p-6">
-              <p className="mb-4 text-sm opacity-70">Share this URL to collaborate:</p>
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={shareUrl}
-                  readOnly
-                  className={`flex-1 px-3 py-2 rounded-lg border ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} text-sm`}
-                />
-                <button
-                  onClick={() => navigator.clipboard.writeText(shareUrl)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium flex items-center space-x-2"
-                >
-                  <Copy className="w-4 h-4" />
-                  <span>Copy</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Loading Overlay */}
-      {loading && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className={`rounded-lg p-6 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} flex items-center space-x-3`}>
-            <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
-            <span className="font-medium">Processing...</span>
+            <button
+              onClick={() => setShowShareModal(false)}
+              className={`w-full py-2 rounded transition-colors ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
