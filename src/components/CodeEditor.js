@@ -633,9 +633,9 @@ export default function CodeEditor() {
         };
       case 'editorConsole':
         return {
-          editor: 'w-full h-3/4',
+          editor: 'w-1/2 h-full',
           preview: 'hidden',
-          console: 'w-full h-1/4'
+          console: 'w-1/2 h-full'
         };
       case 'fullPreview':
         return {
@@ -878,98 +878,89 @@ export default function CodeEditor() {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Editor and Preview Row */}
-        <div className={`flex-1 flex overflow-hidden ${
-          layout === 'editorConsole' ? 'flex-col' : ''
-        }`}>
-          {/* Editor Section */}
-          <div className={`flex flex-col ${layoutClasses.editor} ${
-            layout === 'editorConsole' ? 'h-3/4' : ''
-          }`}>
-            {/* Editor Tabs */}
-            <div className={`flex border-b ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-              {['html', 'css', 'js'].map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 font-medium transition-colors ${
-                    activeTab === tab 
-                      ? theme === 'dark' 
-                        ? 'bg-gray-700 text-white' 
-                        : 'bg-gray-200 text-gray-900'
-                      : theme === 'dark'
-                        ? 'text-gray-400 hover:text-white'
-                        : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  {tab.toUpperCase()}
-                </button>
-              ))}
-            </div>
+      <div className="flex-1 flex overflow-hidden">
+        {/* Editor Section */}
+        <div className={`flex flex-col ${layoutClasses.editor}`}>
+          {/* Editor Tabs */}
+          <div className={`flex border-b ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            {['html', 'css', 'js'].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 font-medium transition-colors ${
+                  activeTab === tab 
+                    ? theme === 'dark' 
+                      ? 'bg-gray-700 text-white' 
+                      : 'bg-gray-200 text-gray-900'
+                    : theme === 'dark'
+                      ? 'text-gray-400 hover:text-white'
+                      : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {tab.toUpperCase()}
+              </button>
+            ))}
+          </div>
 
-            {/* Monaco Editor */}
-            <div className="flex-1">
-              <Editor
-                height="100%"
-                language={getLanguage()}
-                value={getCurrentCode()}
-                onChange={handleEditorChange}
-                theme={theme === 'dark' ? 'vs-dark' : 'vs'}
-                options={{
-                  fontSize,
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  tabSize: 2,
-                  wordWrap: 'on',
-                  lineNumbers: 'on',
-                  folding: true,
-                  foldingHighlight: true,
-                  showFoldingControls: 'mouseover',
-                  matchBrackets: 'always',
-                  scrollbar: {
-                    verticalScrollbarSize: 8,
-                    horizontalScrollbarSize: 8,
-                  },
-                }}
+          {/* Monaco Editor */}
+          <div className="flex-1">
+            <Editor
+              height="100%"
+              language={getLanguage()}
+              value={getCurrentCode()}
+              onChange={handleEditorChange}
+              theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+              options={{
+                fontSize,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                tabSize: 2,
+                wordWrap: 'on',
+                lineNumbers: 'on',
+                folding: true,
+                foldingHighlight: true,
+                showFoldingControls: 'mouseover',
+                matchBrackets: 'always',
+                scrollbar: {
+                  verticalScrollbarSize: 8,
+                  horizontalScrollbarSize: 8,
+                },
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Preview Section - Only show in layouts that include preview */}
+        {(layout === 'editorPreview' || layout === 'fullPreview') && (
+          <div className={`flex flex-col ${layoutClasses.preview} ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+            <div className={`flex items-center justify-between p-2 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+              <h3 className="font-medium">Preview</h3>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={runCode}
+                  className={`p-1 rounded transition-colors ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                  title="Refresh Preview"
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 relative">
+              <iframe
+                ref={iframeRef}
+                title="preview"
+                className="w-full h-full border-0"
+                sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-popups"
+                srcDoc={autoRun ? generateSrcDoc() : ''}
               />
             </div>
           </div>
-
-          {/* Preview Section - Only show in layouts that include preview */}
-          {(layout === 'editorPreview' || layout === 'fullPreview') && (
-            <div className={`flex flex-col ${layoutClasses.preview} ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
-              <div className={`flex items-center justify-between p-2 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
-                <h3 className="font-medium">Preview</h3>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={runCode}
-                    className={`p-1 rounded transition-colors ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
-                    title="Refresh Preview"
-                  >
-                    <RefreshCw size={14} />
-                  </button>
-                </div>
-              </div>
-              <div className="flex-1 relative">
-                <iframe
-                  ref={iframeRef}
-                  title="preview"
-                  className="w-full h-full border-0"
-                  sandbox="allow-scripts allow-same-origin allow-modals allow-forms allow-popups"
-                  srcDoc={autoRun ? generateSrcDoc() : ''}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Console Section - Only show in layouts that include console */}
         {(layout === 'editorConsole') && (
-          <div className={`flex flex-col ${layoutClasses.console} ${
-            layout === 'editorConsole' ? 'h-1/4' : ''
-          } ${theme === 'dark' ? 'bg-gray-800 border-t border-gray-700' : 'bg-white border-t border-gray-200'}`}>
+          <div className={`flex flex-col ${layoutClasses.console} ${theme === 'dark' ? 'bg-gray-800 border-l border-gray-700' : 'bg-white border-l border-gray-200'}`}>
             <div className={`flex items-center justify-between p-2 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
               <h3 className="font-medium">Console</h3>
               <div className="flex items-center space-x-2">
