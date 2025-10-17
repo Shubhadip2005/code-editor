@@ -1372,6 +1372,56 @@ export default function CodeEditor() {
         )}
       </div>
 
+      {/* Enhanced Footer */}
+      <div className={`flex items-center justify-between px-4 py-1 text-xs border-t ${
+        theme === 'dark' ? 'bg-gray-800 border-gray-700 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-500'
+      }`}>
+        <div className="flex items-center space-x-4">
+          <span className="flex items-center space-x-1">
+            <span>Lines:</span>
+            <span className="font-mono">
+              {getCurrentCode().split('\n').length}
+            </span>
+          </span>
+          <span className="flex items-center space-x-1">
+            <span>Chars:</span>
+            <span className="font-mono">
+              {getCurrentCode().length}
+            </span>
+          </span>
+          <span className="flex items-center space-x-1">
+            <span>Language:</span>
+            <span className="font-mono uppercase">
+              {getLanguage()}
+            </span>
+          </span>
+        </div>
+        
+        <div className="flex items-center space-x-4">
+          <span className={`flex items-center space-x-1 ${autoRun ? 'text-green-400' : 'text-yellow-400'}`}>
+            <span>Auto-run:</span>
+            <span className="font-mono">
+              {autoRun ? 'ON' : 'OFF'}
+            </span>
+          </span>
+          <span className="flex items-center space-x-1">
+            <span>Layout:</span>
+            <span className="font-mono">
+              {layout === 'editorPreview' ? 'Editor+Preview' : 
+               layout === 'editorOnly' ? 'Editor Only' : 
+               layout === 'editorConsole' ? 'Editor+Console' : 
+               'Full Preview'}
+            </span>
+          </span>
+        </div>
+        
+        <div className="flex items-center space-x-1">
+          <span>CodeStudio</span>
+          <span className="text-gray-500">•</span>
+          <span>v1.0</span>
+        </div>
+      </div>
+
       {/* Project Manager Modal */}
       {showProjectManager && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
