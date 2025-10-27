@@ -524,7 +524,7 @@ We welcome contributions from the community! Here's how you can help make Code E
 
 1. **Fork the Repository**
    ```bash
-   git clone https://github.com/your-username/code-editor.git
+   git clone https://github.com/Shubhadip2005/code-editor.git
    cd code-editor
    ```
 
